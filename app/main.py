@@ -5,6 +5,9 @@ from fastapi.params import Body
 from pydantic import BaseModel
 from typing import Optional
 from random import randrange
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import time 
 
 app = FastAPI()
 
@@ -12,7 +15,18 @@ class Post(BaseModel):
     title: str
     content: str
     published:bool = True
-    rating: Optional[int] = None
+
+while True: 
+    
+    try:
+        conn = psycopg2.connect(host='localhost', database='fastapi', user='postgres', password='1234', cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
+        print("Database connection was succesfull")
+        break
+    except Exception as error:
+        print("Connecting to database failed")
+        print("Error: ", error)
+        time.sleep(2)
 
 my_posts = [{"title":"title of post 1", "content":"content of post 1", "id":1},{"title":"favorite foods","content":"I like pizza","id":2}]
 
@@ -33,15 +47,15 @@ async def root():
 
 @app.get("/posts")
 def get_posts():
-
-    return {"data" : my_posts}
-
+    cursor.execute("""SELECT * FROM posts""")
+    posts = cursor.fetchall()
+    return {"data" : posts}
 
 
 @app.get("/posts/{id}")
-def get_post(id:int, response: Response):
-    
-    post = find_post(id)
+def get_post(id:int):
+    cursor.execute("""SELECT * FROM posts WHERE id = %s """,(str(id)))
+    post = cursor.fetchone()
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id: {id} was not found")
     return {"post_detail":post}
@@ -49,11 +63,13 @@ def get_post(id:int, response: Response):
 
 @app.post("/posts",status_code=status.HTTP_201_CREATED)
 def create_posts(post: Post):
-    
-    post_dict = post.dict()
-    post_dict['id'] = randrange(0,1000000)
-    my_posts.append(post_dict)
-    return {"data":post_dict}
+    cursor.execute("""INSERT INTO posts (title, content, published) VALUES (%s,%s,%s) RETURNING * """,
+    (post.title, post.content,post.published))
+    new_post = cursor.fetchone()
+
+    conn.commit()
+
+    return {"data":new_post}
 
 @app.delete("/posts/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_post(id:int):
